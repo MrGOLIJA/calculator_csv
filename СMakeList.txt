@@ -1,0 +1,151 @@
+cmake_minimum_required(VERSION 3.14)
+project(csv_median_calculator VERSION 1.0.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    add_compile_options(/W4 /WX /EHsc /permissive-)
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS -DNOMINMAX)
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+endif()
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+
+include(FetchContent)
+
+function(safe_fetch_content content_name)
+    if(NOT ${content_name}_POPULATED)
+        FetchContent_Populate(${content_name})
+    endif()
+endfunction()
+
+set(BOOST_ENABLE_CMAKE ON)
+FetchContent_Declare(
+    Boost
+    GIT_REPOSITORY https://github.com/boostorg/boost.git
+    GIT_TAG boost-1.84.0
+    GIT_SUBMODULES "libs/filesystem;libs/spirit;libs/program_options;libs/accumulators"
+)
+
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG v1.14.1
+)
+
+FetchContent_Declare(
+    tomlplusplus
+    GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+    GIT_TAG v3.4.0
+)
+
+FetchContent_MakeAvailable(Boost spdlog tomlplusplus)
+
+
+if(Boost_POPULATED)
+    find_package(Boost REQUIRED COMPONENTS filesystem spirit program_options accumulators)
+    
+    target_include_directories(Boost::headers INTERFACE ${Boost_SOURCE_DIR})
+    
+    if(NOT TARGET Boost::filesystem)
+        add_library(Boost::filesystem INTERFACE IMPORTED)
+        target_link_libraries(Boost::filesystem INTERFACE Boost::boost)
+        target_compile_definitions(Boost::filesystem INTERFACE BOOST_ALL_NO_LIB)
+    endif()
+    
+    if(NOT TARGET Boost::spirit)
+        add_library(Boost::spirit INTERFACE IMPORTED)
+        target_link_libraries(Boost::spirit INTERFACE Boost::boost)
+        target_compile_definitions(Boost::spirit INTERFACE BOOST_ALL_NO_LIB)
+    endif()
+    
+    if(NOT TARGET Boost::program_options)
+        add_library(Boost::program_options INTERFACE IMPORTED)
+        target_link_libraries(Boost::program_options INTERFACE Boost::boost)
+        target_compile_definitions(Boost::program_options INTERFACE BOOST_ALL_NO_LIB)
+    endif()
+    
+    if(NOT TARGET Boost::accumulators)
+        add_library(Boost::accumulators INTERFACE IMPORTED)
+        target_link_libraries(Boost::accumulators INTERFACE Boost::boost)
+        target_compile_definitions(Boost::accumulators INTERFACE BOOST_ALL_NO_LIB)
+    endif()
+endif()
+
+set(SOURCES
+    src/main.cpp
+    src/config_parser.cpp
+    src/scaner_directory.cpp
+    src/csv_handler.cpp
+    src/csv_writer.cpp
+    src/calculator_median.cpp
+)
+
+set(HEADERS
+    include/config_data.hpp
+    include/config_parser.hpp
+    include/scaner_directory.hpp
+    include/csv_data.hpp
+    include/csv_handler.hpp
+    include/csv_writer.hpp
+    include/calculator_median.hpp
+)
+
+add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    # Boost (header-only components)
+    Boost::headers
+    # spdlog
+    spdlog::spdlog_header_only
+    # toml++
+    tomlplusplus
+)
+
+if(TARGET Boost::filesystem)
+    target_link_libraries(${PROJECT_NAME} PRIVATE 
+        Boost::filesystem
+        Boost::program_options
+    )
+endif()
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    BOOST_ALL_NO_LIB
+    BOOST_SPIRIT_USE_PHOENIX_V3
+    BOOST_PROGRAM_OPTIONS_NO_LIB
+    BOOST_FILESYSTEM_NO_LIB
+)
+
+if(WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE 
+        ws2_32
+        bcrypt  # для Boost.Filesystem в некоторых случаях
+    )
+endif()
+
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE 
+        SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
+        _DEBUG
+    )
+else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE 
+        SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO
+    )
+endif()
+
+install(TARGETS ${PROJECT_NAME}
+    RUNTIME DESTINATION bin
+)
